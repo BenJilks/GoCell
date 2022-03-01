@@ -38,24 +38,14 @@ type Expression struct {
     number float64
 }
 
-func (expression *Expression) shift(direction Direction) {
+func (expression *Expression) Shift(direction Direction) {
     switch expression.kind {
     case ExpressionAdd:
-        expression.lhs.shift(direction)
-        expression.rhs.shift(direction)
+        expression.lhs.Shift(direction)
+        expression.rhs.Shift(direction)
     case ExpressionCell:
-        switch direction {
-        case DirectionUp:
-            expression.row -= 1
-        case DirectionRight:
-            expression.column += 1
-        case DirectionDown:
-            expression.row += 1
-        case DirectionLeft:
-            expression.column -= 1
-        default:
-            panic(0)
-        }
+        row, column := &expression.row, &expression.column
+        *row, *column = direction.Offset(*row, *column)
     case ExpressionNumber:
         break
     }

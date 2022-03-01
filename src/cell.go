@@ -15,7 +15,7 @@ const (
     DirectionNone
 )
 
-func (direction Direction) reverse() Direction {
+func (direction Direction) Reverse() Direction {
     switch direction {
     case DirectionUp:
         return DirectionDown
@@ -25,6 +25,21 @@ func (direction Direction) reverse() Direction {
         return DirectionUp
     case DirectionLeft:
         return DirectionRight
+    default:
+        panic(0)
+    }
+}
+
+func (direction Direction) Offset(row int, column int) (int, int) {
+    switch direction {
+    case DirectionUp:
+        return row - 1, column
+    case DirectionRight:
+        return row, column + 1
+    case DirectionDown:
+        return row + 1, column
+    case DirectionLeft:
+        return row, column - 1
     default:
         panic(0)
     }
