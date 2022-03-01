@@ -1,6 +1,11 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+)
 
 func (table *Table) EvaluateCellReferance(expression *Expression) (float64, error) {
     table.EnsureEvaluated(expression.row, expression.column)
@@ -41,6 +46,33 @@ func add_operation(a float64, b float64) float64 {
     return a + b
 }
 
+func (table *Table) EvaluateFunction(expression *Expression) (float64, error) {
+    arguments := make([]float64, len(expression.arguments))
+    for i, argument := range expression.arguments {
+        var err error
+
+        arguments[i], err = table.EvaluateExpression(&argument)
+        if err != nil {
+            return -1, err
+        }
+    }
+
+    switch strings.ToLower(expression.function) {
+    case "sqrt":
+        if len(arguments) != 1 {
+            return -1, fmt.Errorf(
+                "Function 'sqrt' takes 1 argument, got %d",
+                len(arguments))
+        }
+
+        return math.Sqrt(arguments[0]), nil
+    default:
+        return -1, fmt.Errorf(
+            "Uknown function '%s'",
+            expression.function)
+    }
+}
+
 func (table *Table) EvaluateExpression(expression *Expression) (float64, error) {
     switch expression.kind {
     case ExpressionAdd:
@@ -49,6 +81,8 @@ func (table *Table) EvaluateExpression(expression *Expression) (float64, error) 
         return expression.number, nil
     case ExpressionCell:
         return table.EvaluateCellReferance(expression)
+    case ExpressionFunction:
+        return table.EvaluateFunction(expression)
     default:
         panic(0)
     }
