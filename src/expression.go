@@ -37,9 +37,45 @@ type Expression struct {
     number float64
 }
 
+func parseCellReference(text string) (Token, string, error) {
+    column := text[0] - 'A'
+
+    i := 1
+    for i < len(text) && text[i] != ' ' {
+        i += 1
+    }
+
+    row, err := strconv.ParseInt(text[1:i], 10, 32)
+    if err != nil {
+        panic(err)
+    }
+
+    return Token {
+        kind: TokenCell,
+        row: int(row) - 1,
+        column: int(column),
+    }, text[i:], nil
+}
+
+func parseNumber(text string) (Token, string, error) {
+    i := 1
+    for i < len(text) && text[i] != ' ' {
+        i += 1
+    }
+
+    number, err := strconv.ParseFloat(text[:i], 64)
+    if err != nil {
+        panic(err)
+    }
+
+    return Token {
+        kind: TokenNumber,
+        number: number,
+    }, text[i:], nil
+}
+
 func nextToken(text string) (Token, string, error) {
     text = strings.TrimLeft(text, " ")
-
     if len(text) == 0 {
         return Token { kind: TokenEmpty }, text, nil
     }
@@ -49,38 +85,9 @@ func nextToken(text string) (Token, string, error) {
     case c == '+':
         return Token { kind: TokenAdd }, text[1:], nil
     case c >= 'A' && c <= 'Z':
-        column := c - 'A'
-
-        i := 1
-        for i < len(text) && text[i] != ' ' {
-            i += 1
-        }
-
-        row, err := strconv.ParseInt(text[1:i], 10, 32)
-        if err != nil {
-            panic(err)
-        }
-
-        return Token {
-            kind: TokenCell,
-            row: int(row) - 1,
-            column: int(column),
-        }, text[i:], nil
+        return parseCellReference(text)
     case c >= '0' && c <= '9':
-        i := 1
-        for i < len(text) && text[i] != ' ' {
-            i += 1
-        }
-
-        number, err := strconv.ParseFloat(text[:i], 64)
-        if err != nil {
-            panic(err)
-        }
-
-        return Token {
-            kind: TokenNumber,
-            number: number,
-        }, text[i:], nil
+        return parseNumber(text)
     default:
         return Token {}, text[1:], errors.New(
             "Unexpected char '" + string(c) + "'")
@@ -114,6 +121,21 @@ func parseTerm(text string) (Expression, string, error) {
     panic(0)
 }
 
+func parseOperation(lhs Expression,
+                    kind ExpressionKind,
+                    text string) (Expression, string, error) {
+    rhs, text, err := parseExpression(text)
+    if err != nil {
+        return Expression{}, text, err
+    }
+
+    return Expression {
+        kind: kind,
+        lhs: &lhs,
+        rhs: &rhs,
+    }, text, nil
+}
+
 func parseExpression(text string) (Expression, string, error) {
     result, text, err := parseTerm(text)
     if err != nil {
@@ -129,17 +151,9 @@ func parseExpression(text string) (Expression, string, error) {
 
         switch token.kind {
         case TokenAdd:
-            var rhs Expression
-            rhs, text, err = parseExpression(text)
+            result, text, err = parseOperation(result, ExpressionAdd, text)
             if err != nil {
                 return Expression{}, text, err
-            }
-
-            lhs := result
-            result = Expression {
-                kind: ExpressionAdd,
-                lhs: &lhs,
-                rhs: &rhs,
             }
         case TokenEmpty:
         case TokenNumber:

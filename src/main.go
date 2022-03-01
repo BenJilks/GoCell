@@ -14,118 +14,118 @@ type Table struct {
     columns int
 }
 
+func (table *Table) EvaluateCellReferance(expression *Expression) (float64, error) {
+    index := expression.row * table.columns + expression.column
+    cell := &table.content[index]
+
+    switch cell.kind {
+    case CellText:
+        return -1, errors.New("Cannot operate on text")
+    case CellNumber:
+        return cell.number, nil
+    case CellExpression:
+        value, err := table.EvaluateCell(cell)
+        if err != nil {
+            return -1, errors.New(fmt.Sprintf("Error in %c%d",
+                expression.column + 'A', expression.row))
+        }
+
+        return value, nil
+    case CellError:
+        return -1, cell.err
+    case CellEmpty:
+        return 0, nil
+    default:
+        panic(0)
+    }
+}
+
+func (table *Table) EvaluateOperation(operation func(float64, float64) float64,
+                                      expression *Expression) (float64, error) {
+    lhs, err := table.EvaluateExpression(expression.lhs)
+    if err != nil {
+        return -1, err
+    }
+
+    rhs, err := table.EvaluateExpression(expression.rhs)
+    if err != nil {
+        return -1, err
+    }
+    
+    return operation(lhs, rhs), nil
+}
+
+func add_operation(a float64, b float64) float64 {
+    return a + b
+}
+
 func (table *Table) EvaluateExpression(expression *Expression) (float64, error) {
     switch expression.kind {
     case ExpressionAdd:
-        lhs, err := table.EvaluateExpression(expression.lhs)
-        if err != nil {
-            return -1, err
-        }
-
-        rhs, err := table.EvaluateExpression(expression.rhs)
-        if err != nil {
-            return -1, err
-        }
-        
-        return lhs + rhs, nil
+        return table.EvaluateOperation(add_operation, expression)
     case ExpressionNumber:
         return expression.number, nil
     case ExpressionCell:
-        index := expression.row * table.columns + expression.column
-        cell := &table.content[index]
-        switch cell.kind {
-        case CellText:
-            return -1, errors.New("Cannot operate on text")
-        case CellNumber:
-            return cell.number, nil
-        case CellExpression:
-            value, err := table.EvaluateCell(cell)
-            if err != nil {
-                return -1, errors.New(fmt.Sprintf("Error in %c%d",
-                    expression.column + 'A', expression.row))
-            }
-
-            return value, nil
-        case CellError:
-            return -1, cell.err
-        case CellEmpty:
-            return 0, nil
-        default:
-            panic(0)
-        }
+        return table.EvaluateCellReferance(expression)
     default:
         panic(0)
     }
 }
 
 func (table *Table) EvaluateCell(cell *Cell) (float64, error) {
+    if cell.kind != CellExpression {
+        return 0, nil
+    }
+
     if cell.is_evaluating {
-        err := errors.New("Loop!")
-        *cell = Cell {
-            kind: CellError,
-            err: err,
-        }
-        return -1, err
+        *cell = Cell { kind: CellError, err: errors.New("Loop!") }
+        return -1, cell.err
     }
 
     cell.is_evaluating = true
-    defer func() { cell.is_evaluating = false }()
-
     value, err := table.EvaluateExpression(&cell.expression)
     if err != nil {
-        *cell = Cell {
-            kind: CellError,
-            err: err,
-        }
+        *cell = Cell { kind: CellError, err: err }
     } else {
-        *cell = Cell {
-            kind: CellNumber,
-            number: value,
-        }
+        *cell = Cell { kind: CellNumber, number: value }
     }
 
+    cell.is_evaluating = false
     return value, err
 }
 
 func (table *Table) Evaluate() {
-    for row := 0; row < table.rows; row++ {
-        for column := 0; column < table.columns; column++ {
-            index := row * table.columns + column
-            cell := &table.content[index]
-            if cell.kind != CellExpression {
-                continue
-            }
-
-            table.EvaluateCell(cell)
-        }
+    for i := range table.content {
+        table.EvaluateCell(&table.content[i])
     }
 }
 
 func (table *Table) Print() {
+    content := make([][]string, table.rows)
     widths := make([]int, table.columns)
     for row := 0; row < table.rows; row++ {
+        content[row] = make([]string, table.columns)
         for column := 0; column < table.columns; column++ {
             index := row * table.columns + column
             cell := table.content[index]
-            width := len(cell.String())
+            text := cell.String()
+            content[row][column] = text
+
+            width := len(text)
             if width > widths[column] {
                 widths[column] = width
             }
         }
     }
 
-    for row := 0; row < table.rows; row++ {
-        for column := 0; column < table.columns; column++ {
-            index := row * table.columns + column
-            cell := table.content[index]
-            text := cell.String()
-
-            fmt.Printf("%-" + fmt.Sprint(widths[column]) + "s", text)
-            if column != table.columns - 1 {
-                fmt.Print(" | ")
-            }
+    for _, row := range content {
+        padded_row := make([]string, table.columns)
+        for column, cell := range row {
+            format := fmt.Sprintf("%%-%ds", column)
+            padded_row[column] = fmt.Sprintf(format, cell)
         }
-        fmt.Println()
+
+        fmt.Println(strings.Join(padded_row, " | "))
     }
 }
 

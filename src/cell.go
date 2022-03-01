@@ -29,7 +29,7 @@ func (cell Cell) String() string {
     case CellText:
         return cell.text
     case CellNumber:
-        return fmt.Sprintf("%f", cell.number)
+        return fmt.Sprintf("%.6g", cell.number)
     case CellExpression:
         return "#ERROR#"
     case CellError:
@@ -49,29 +49,17 @@ func parseCell(text string) Cell {
     if text[0] == '=' {
         expression, _, err := parseExpression(text[1:]) 
         if err != nil {
-            return Cell {
-                kind: CellError,
-                err: err,
-            }
+            return Cell { kind: CellError, err: err }
         }
 
-        return Cell {
-            kind: CellExpression,
-            expression: expression,
-        }
+        return Cell { kind: CellExpression, expression: expression }
     }
 
     number, err := strconv.ParseFloat(text, 64)
     if err == nil {
-        return Cell {
-            kind: CellNumber,
-            number: number,
-        }
+        return Cell { kind: CellNumber, number: number }
     }
 
-    return Cell {
-        kind: CellText,
-        text: text,
-    }
+    return Cell { kind: CellText, text: text }
 }
 
