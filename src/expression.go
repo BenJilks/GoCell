@@ -16,6 +16,7 @@ const (
     TokenName
     TokenNumber
     TokenCell
+    TokenRange
     TokenEmpty
 )
 
@@ -25,6 +26,8 @@ type Token struct {
     number float64
     row int
     column int
+    end_row int
+    end_column int
 }
 
 type ExpressionKind int
@@ -32,6 +35,7 @@ const (
     ExpressionAdd ExpressionKind = iota
     ExpressionNumber
     ExpressionCell
+    ExpressionRange
     ExpressionFunction
 )
 
@@ -44,6 +48,8 @@ type Expression struct {
 
     row int
     column int
+    end_row int
+    end_column int
 
     function string
     arguments []Expression
@@ -57,6 +63,11 @@ func (expression *Expression) Shift(direction Direction) {
     case ExpressionCell:
         row, column := &expression.row, &expression.column
         *row, *column = direction.Offset(*row, *column)
+    case ExpressionRange:
+        row, column := &expression.row, &expression.column
+        end_row, end_column := &expression.end_row, &expression.end_column
+        *row, *column = direction.Offset(*row, *column)
+        *end_row, *end_column = direction.Offset(*end_row, *end_column)
     case ExpressionFunction:
         for i := range expression.arguments {
             expression.arguments[i].Shift(direction)
@@ -91,24 +102,44 @@ func parseName(text string) (Token, string, error) {
     }, text[i:], nil
 }
 
+func parseRange(row int, column int, text string) (Token, string, error) {
+    end, text, err := parseCellReference(text)
+    if err != nil {
+        return Token{}, text, err
+    }
+
+    return Token {
+        kind: TokenRange,
+        row: int(row) - 1,
+        column: int(column),
+        end_row: end.row,
+        end_column: end.column,
+    }, text, nil
+}
+
 func parseCellReference(text string) (Token, string, error) {
     column_name := strings.ToUpper(text)[0]
-    column := column_name - 'A'
+    column := int(column_name - 'A')
 
     i := 1
     for i < len(text) && isDigit(text[i]) {
         i += 1
     }
 
-    row, err := strconv.ParseInt(text[1:i], 10, 32)
+    row_index, err := strconv.ParseInt(text[1:i], 10, 32)
     if err != nil {
         return Token{}, text, err
     }
 
+    row := int(row_index) - 1
+    if i < len(text) && text[i] == ':' {
+        return parseRange(row, column, text[i+1:])
+    }
+
     return Token {
         kind: TokenCell,
-        row: int(row) - 1,
-        column: int(column),
+        row: row,
+        column: column,
     }, text[i:], nil
 }
 
@@ -227,6 +258,14 @@ func parseTerm(text string) (Expression, string, error) {
             kind: ExpressionCell,
             row: token.row,
             column: token.column,
+        }, text, nil
+    case TokenRange:
+        return Expression {
+            kind: ExpressionRange,
+            row: token.row,
+            column: token.column,
+            end_row: token.end_row,
+            end_column: token.end_column,
         }, text, nil
     case TokenAdd:
         return Expression{}, text, errors.New(

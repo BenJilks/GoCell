@@ -47,13 +47,32 @@ func add_operation(a float64, b float64) float64 {
 }
 
 func (table *Table) EvaluateFunction(expression *Expression) (float64, error) {
-    arguments := make([]float64, len(expression.arguments))
-    for i, argument := range expression.arguments {
-        var err error
+    type Argument struct {
+        is_range bool
+        value float64
+        row int
+        column int
+        end_row int
+        end_column int
+    }
 
-        arguments[i], err = table.EvaluateExpression(&argument)
-        if err != nil {
-            return -1, err
+    arguments := make([]Argument, len(expression.arguments))
+    for i, argument := range expression.arguments {
+        if argument.kind == ExpressionRange {
+            arguments[i] = Argument {
+                is_range: true,
+                row: argument.row,
+                column: argument.column,
+                end_row: argument.end_row,
+                end_column: argument.end_column,
+            }
+        } else {
+            value, err := table.EvaluateExpression(&argument)
+            if err != nil {
+                return -1, err
+            }
+
+            arguments[i] = Argument { value: value }
         }
     }
 
@@ -64,8 +83,33 @@ func (table *Table) EvaluateFunction(expression *Expression) (float64, error) {
                 "Function 'sqrt' takes 1 argument, got %d",
                 len(arguments))
         }
+        if arguments[0].is_range {
+            return -1, errors.New(
+                "Function 'sqrt' takes a value, not range")
+        }
 
-        return math.Sqrt(arguments[0]), nil
+        return math.Sqrt(arguments[0].value), nil
+    case "sum":
+        if len(arguments) != 1 {
+            return -1, fmt.Errorf(
+                "Function 'sum' takes 1 argument, got %d",
+                len(arguments))
+        }
+        if !arguments[0].is_range {
+            return -1, errors.New(
+                "Function 'sum' takes a range, not value")
+        }
+
+        total := 0.0
+        for row := arguments[0].row; row <= arguments[0].end_row; row++ {
+            for column := arguments[0].column; column <= arguments[0].end_column; column++ {
+                table.EnsureEvaluated(row, column)
+                cell := table.CellAt(row, column)
+                total += cell.number
+            }
+        }
+
+        return total, nil
     default:
         return -1, fmt.Errorf(
             "Uknown function '%s'",
@@ -81,6 +125,8 @@ func (table *Table) EvaluateExpression(expression *Expression) (float64, error) 
         return expression.number, nil
     case ExpressionCell:
         return table.EvaluateCellReferance(expression)
+    case ExpressionRange:
+        return -1, errors.New("Ranges can only be used in functions")
     case ExpressionFunction:
         return table.EvaluateFunction(expression)
     default:

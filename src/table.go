@@ -47,7 +47,7 @@ func (table *Table) Print() {
     for _, row := range content {
         padded_row := make([]string, table.columns)
         for column, cell := range row {
-            format := fmt.Sprintf("%%-%ds", column)
+            format := fmt.Sprintf("%%-%ds", widths[column])
             padded_row[column] = fmt.Sprintf(format, cell)
         }
 
