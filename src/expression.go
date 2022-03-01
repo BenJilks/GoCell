@@ -20,14 +20,20 @@ const (
     TokenEmpty
 )
 
+type Range struct {
+    start_row int
+    start_column int
+    end_row int
+    end_column int
+}
+
 type Token struct {
     kind TokenKind
     name string
     number float64
     row int
     column int
-    end_row int
-    end_column int
+    cellRange Range
 }
 
 type ExpressionKind int
@@ -48,8 +54,7 @@ type Expression struct {
 
     row int
     column int
-    end_row int
-    end_column int
+    cellRange Range
 
     function string
     arguments []Expression
@@ -64,9 +69,11 @@ func (expression *Expression) Shift(direction Direction) {
         row, column := &expression.row, &expression.column
         *row, *column = direction.Offset(*row, *column)
     case ExpressionRange:
-        row, column := &expression.row, &expression.column
-        end_row, end_column := &expression.end_row, &expression.end_column
-        *row, *column = direction.Offset(*row, *column)
+        cellRange := &expression.cellRange
+        start_row, start_column := &cellRange.start_row, &cellRange.end_column
+        end_row, end_column := &cellRange.end_row, &cellRange.end_column
+
+        *start_row, *start_column = direction.Offset(*start_row, *start_column)
         *end_row, *end_column = direction.Offset(*end_row, *end_column)
     case ExpressionFunction:
         for i := range expression.arguments {
@@ -110,10 +117,12 @@ func parseRange(row int, column int, text string) (Token, string, error) {
 
     return Token {
         kind: TokenRange,
-        row: int(row) - 1,
-        column: int(column),
-        end_row: end.row,
-        end_column: end.column,
+        cellRange: Range {
+            start_row: row,
+            start_column: column,
+            end_row: end.row,
+            end_column: end.column,
+        },
     }, text, nil
 }
 
@@ -262,10 +271,7 @@ func parseTerm(text string) (Expression, string, error) {
     case TokenRange:
         return Expression {
             kind: ExpressionRange,
-            row: token.row,
-            column: token.column,
-            end_row: token.end_row,
-            end_column: token.end_column,
+            cellRange: token.cellRange,
         }, text, nil
     case TokenAdd:
         return Expression{}, text, errors.New(

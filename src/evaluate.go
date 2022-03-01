@@ -46,75 +46,101 @@ func add_operation(a float64, b float64) float64 {
     return a + b
 }
 
-func (table *Table) EvaluateFunction(expression *Expression) (float64, error) {
-    type Argument struct {
-        is_range bool
-        value float64
-        row int
-        column int
-        end_row int
-        end_column int
+type Argument struct {
+    is_range bool
+    value float64
+    cellRange Range
+}
+
+type Function struct {
+    function func(*Table, []Argument) float64
+    expected_arguments []bool
+}
+
+func sum(table *Table, arguments []Argument) float64 {
+    total := 0.0
+    a := arguments[0].cellRange
+    for row := a.start_row; row <= a.end_row; row++ {
+        for column := a.start_column; column <= a.end_column; column++ {
+            table.EnsureEvaluated(row, column)
+            total += table.CellAt(row, column).number
+        }
     }
 
+    return total
+}
+
+func sqrt(_ *Table, arguments []Argument) float64 {
+    return math.Sqrt(arguments[0].value)
+}
+
+func (table *Table) GetFunction(name string) *Function {
+    switch strings.ToLower(name) {
+    case "sum":
+        return &Function {
+            function: sum,
+            expected_arguments: []bool { true },
+        }
+    case "sqrt":
+        return &Function {
+            function: sqrt,
+            expected_arguments: []bool { false },
+        }
+    default:
+        return nil
+    }
+}
+
+func validateArguments(name string, function *Function, arguments []Argument) error {
+    if function == nil {
+        return fmt.Errorf("Uknown function '%s'", name)
+    }
+
+    if len(arguments) != len(function.expected_arguments) {
+        return fmt.Errorf(
+            "Function '%s' takes %d argument(s), got %d",
+            name,
+            len(function.expected_arguments),
+            len(arguments))
+    }
+
+    for i := range arguments {
+        if arguments[i].is_range != function.expected_arguments[i] {
+            return fmt.Errorf(
+                "Function '%s' takes a value, not range",
+                name)
+        }
+    }
+
+    return nil
+}
+
+func (table *Table) EvaluateFunction(expression *Expression) (float64, error) {
     arguments := make([]Argument, len(expression.arguments))
     for i, argument := range expression.arguments {
         if argument.kind == ExpressionRange {
             arguments[i] = Argument {
                 is_range: true,
-                row: argument.row,
-                column: argument.column,
-                end_row: argument.end_row,
-                end_column: argument.end_column,
+                cellRange: argument.cellRange,
             }
-        } else {
-            value, err := table.EvaluateExpression(&argument)
-            if err != nil {
-                return -1, err
-            }
-
-            arguments[i] = Argument { value: value }
+            continue
         }
+
+        value, err := table.EvaluateExpression(&argument)
+        if err != nil {
+            return -1, err
+        }
+
+        arguments[i] = Argument { value: value }
     }
 
-    switch strings.ToLower(expression.function) {
-    case "sqrt":
-        if len(arguments) != 1 {
-            return -1, fmt.Errorf(
-                "Function 'sqrt' takes 1 argument, got %d",
-                len(arguments))
-        }
-        if arguments[0].is_range {
-            return -1, errors.New(
-                "Function 'sqrt' takes a value, not range")
-        }
-
-        return math.Sqrt(arguments[0].value), nil
-    case "sum":
-        if len(arguments) != 1 {
-            return -1, fmt.Errorf(
-                "Function 'sum' takes 1 argument, got %d",
-                len(arguments))
-        }
-        if !arguments[0].is_range {
-            return -1, errors.New(
-                "Function 'sum' takes a range, not value")
-        }
-
-        total := 0.0
-        for row := arguments[0].row; row <= arguments[0].end_row; row++ {
-            for column := arguments[0].column; column <= arguments[0].end_column; column++ {
-                table.EnsureEvaluated(row, column)
-                cell := table.CellAt(row, column)
-                total += cell.number
-            }
-        }
-
-        return total, nil
-    default:
-        return -1, fmt.Errorf(
-            "Uknown function '%s'",
-            expression.function)
+    name := expression.function
+    function := table.GetFunction(name)
+    if err := validateArguments(name, function, arguments); err != nil {
+        return -1, nil
     }
+
+    return function.function(table, arguments), nil
 }
 
 func (table *Table) EvaluateExpression(expression *Expression) (float64, error) {
