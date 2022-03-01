@@ -38,6 +38,29 @@ type Expression struct {
     number float64
 }
 
+func (expression *Expression) shift(direction Direction) {
+    switch expression.kind {
+    case ExpressionAdd:
+        expression.lhs.shift(direction)
+        expression.rhs.shift(direction)
+    case ExpressionCell:
+        switch direction {
+        case DirectionUp:
+            expression.row -= 1
+        case DirectionRight:
+            expression.column += 1
+        case DirectionDown:
+            expression.row += 1
+        case DirectionLeft:
+            expression.column -= 1
+        default:
+            panic(0)
+        }
+    case ExpressionNumber:
+        break
+    }
+}
+
 func parseCellReference(text string) (Token, string, error) {
     column := text[0] - 'A'
 

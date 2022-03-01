@@ -24,7 +24,7 @@ func (table *Table) EvaluateCellReferance(expression *Expression) (float64, erro
     case CellNumber:
         return cell.number, nil
     case CellExpression:
-        value, err := table.EvaluateCell(cell)
+        value, err := table.EvaluateCell(expression.row, expression.column)
         if err != nil {
             return -1, fmt.Errorf(
                 "Error in %c%d",
@@ -74,31 +74,80 @@ func (table *Table) EvaluateExpression(expression *Expression) (float64, error) 
     }
 }
 
-func (table *Table) EvaluateCell(cell *Cell) (float64, error) {
-    if cell.kind != CellExpression {
-        return 0, nil
+func cellInDirection(row int, column int,
+                     direction Direction) (int, int) {
+    switch direction {
+    case DirectionUp:
+        return row - 1, column
+    case DirectionRight:
+        return row, column + 1
+    case DirectionDown:
+        return row + 1, column
+    case DirectionLeft:
+        return row, column - 1
+    default:
+        panic(0)
+    }
+}
+
+func (table *Table) cloneCell(row int, column int, 
+                              direction Direction) Cell {
+    clone_row, clone_column := cellInDirection(row, column, direction)
+    if clone_row < 0 || clone_row >= table.rows ||
+        clone_column < 0 || clone_column >= table.columns {
+        return Cell {
+            kind: CellError,
+            err: errors.New("Clone outside table"),
+        }
     }
 
-    if cell.is_evaluating {
+    table.EvaluateCell(clone_row, clone_column)
+    index := clone_row * table.columns + clone_column
+    clone_cell := table.content[index]
+    if clone_cell.kind == CellExpression {
+        clone_cell.expression.shift(direction.reverse())
+        clone_cell.evaluationState = EvaluationPending
+        clone_cell.number = 0
+    }
+
+    return clone_cell
+}
+
+func (table *Table) EvaluateCell(row int, column int) (float64, error) {
+    cell := &table.content[row * table.columns + column]
+    if cell.evaluationState == EvaluationDone {
+        return cell.number, nil
+    }
+
+    if cell.evaluationState == EvaluationInProgress {
         *cell = Cell { kind: CellError, err: errors.New("Loop!") }
         return -1, cell.err
     }
 
-    cell.is_evaluating = true
-    value, err := table.EvaluateExpression(&cell.expression)
-    if err != nil {
-        *cell = Cell { kind: CellError, err: err }
-    } else {
-        *cell = Cell { kind: CellNumber, number: value }
-    }
+    cell.evaluationState = EvaluationInProgress
+    switch cell.kind {
+    case CellExpression:
+        value, err := table.EvaluateExpression(&cell.expression)
+        cell.number = value
+        cell.evaluationState = EvaluationDone
+        if err != nil {
+            *cell = Cell { kind: CellError, err: err }
+        }
 
-    cell.is_evaluating = false
-    return value, err
+        return value, err
+    case CellClone:
+        *cell = table.cloneCell(row, column, cell.direction)
+        return table.EvaluateCell(row, column)
+    default:
+        return 0, nil
+    }
 }
 
 func (table *Table) Evaluate() {
-    for i := range table.content {
-        table.EvaluateCell(&table.content[i])
+    for row := 0; row < table.rows; row++ {
+        for column := 0; column < table.columns; column++ {
+            table.EvaluateCell(row, column)
+        }
     }
 }
 
