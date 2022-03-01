@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -47,7 +48,7 @@ func parseCellReference(text string) (Token, string, error) {
 
     row, err := strconv.ParseInt(text[1:i], 10, 32)
     if err != nil {
-        panic(err)
+        return Token{}, text, err
     }
 
     return Token {
@@ -65,7 +66,7 @@ func parseNumber(text string) (Token, string, error) {
 
     number, err := strconv.ParseFloat(text[:i], 64)
     if err != nil {
-        panic(err)
+        return Token{}, text, err
     }
 
     return Token {
@@ -89,8 +90,8 @@ func nextToken(text string) (Token, string, error) {
     case c >= '0' && c <= '9':
         return parseNumber(text)
     default:
-        return Token {}, text[1:], errors.New(
-            "Unexpected char '" + string(c) + "'")
+        return Token {}, text[1:], fmt.Errorf(
+            "Unexpected char '%c'", c)
     }
 }
 
@@ -113,12 +114,14 @@ func parseTerm(text string) (Expression, string, error) {
             column: token.column,
         }, text, nil
     case TokenAdd:
-        panic(0)
+        return Expression{}, text, errors.New(
+            "Unexpected '+', expected value")
     case TokenEmpty:
+        return Expression{}, text, errors.New(
+            "Expected value, got nothing instead")
+    default:
         panic(0)
     }
-
-    panic(0)
 }
 
 func parseOperation(lhs Expression,
@@ -150,16 +153,22 @@ func parseExpression(text string) (Expression, string, error) {
         }
 
         switch token.kind {
+        case TokenEmpty:
+            break
         case TokenAdd:
             result, text, err = parseOperation(result, ExpressionAdd, text)
             if err != nil {
                 return Expression{}, text, err
             }
-        case TokenEmpty:
         case TokenNumber:
-            panic(0)
+            return Expression{}, text, fmt.Errorf(
+                "Unexpected '%.6g', expected operator",
+                token.number)
         case TokenCell:
-            panic(0)
+            return Expression{}, text, fmt.Errorf(
+                "Unexpected '%c%d', expected operator",
+                token.column + 'A',
+                token.row + 1)
         }
     }
 

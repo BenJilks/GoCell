@@ -26,8 +26,10 @@ func (table *Table) EvaluateCellReferance(expression *Expression) (float64, erro
     case CellExpression:
         value, err := table.EvaluateCell(cell)
         if err != nil {
-            return -1, errors.New(fmt.Sprintf("Error in %c%d",
-                expression.column + 'A', expression.row))
+            return -1, fmt.Errorf(
+                "Error in %c%d",
+                expression.column + 'A',
+                expression.row)
         }
 
         return value, nil
@@ -178,21 +180,20 @@ func readTableContent(input string, rows int, columns int) []Cell {
     return content
 }
 
-func readTable(filePath string) Table {
+func readTable(filePath string) (Table, error) {
     input_bytes, err := os.ReadFile(filePath)
     if err != nil {
-        panic(err)
+        return Table{}, err
     }
     
     input := string(input_bytes)
     rows, columns := countTableSize(input)
     content := readTableContent(input, rows, columns)
-
     return Table {
         content,
         rows,
         columns,
-    }
+    }, nil
 }
 
 func main() {
@@ -202,7 +203,12 @@ func main() {
     }
 
     inputFile := os.Args[1]
-    table := readTable(inputFile)
+    table, err := readTable(inputFile)
+    if err != nil {
+        fmt.Println("Error:", err)
+        os.Exit(1)
+    }
+
     table.Evaluate()
     table.Print()
 }
