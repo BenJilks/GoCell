@@ -1,17 +1,29 @@
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
 	"os"
 )
 
 func main() {
-    if len(os.Args) < 2 {
-        fmt.Println("Error: Expected input file")
+    outputFile := flag.String("output", "", "Specify output file")
+    help := flag.Bool("help", false, "Show help screen")
+    flag.Parse()
+
+    inputFile := flag.Arg(0)
+    if inputFile == "" {
+        fmt.Fprintln(os.Stderr, "No input file given")
+        flag.Usage()
         os.Exit(1)
     }
 
-    inputFile := os.Args[1]
+    if *help {
+        flag.Usage()
+        os.Exit(1)
+    }
+
     table, err := readTable(inputFile)
     if err != nil {
         fmt.Println("Error:", err)
@@ -19,6 +31,19 @@ func main() {
     }
 
     table.Evaluate()
-    table.Print()
+
+    if *outputFile == "" {
+        table.Print(os.Stdout)
+    } else {
+        file, err := os.Create(*outputFile)
+        if err != nil {
+            panic(err)
+        }
+
+        writer := bufio.NewWriter(file)
+        table.Print(writer)
+        writer.Flush()
+        file.Close()
+    }
 }
 

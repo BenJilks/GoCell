@@ -30,27 +30,13 @@ func (direction Direction) Reverse() Direction {
     }
 }
 
-func (direction Direction) Offset(row int, column int) (int, int) {
-    switch direction {
-    case DirectionUp:
-        return row - 1, column
-    case DirectionRight:
-        return row, column + 1
-    case DirectionDown:
-        return row + 1, column
-    case DirectionLeft:
-        return row, column - 1
-    default:
-        panic(0)
-    }
-}
-
 type CellKind int
 const (
     CellText CellKind = iota
     CellNumber
     CellExpression
     CellClone
+    CellSeporator
     CellError
     CellEmpty
 )
@@ -68,9 +54,37 @@ type Cell struct {
 
     text string
     number float64
-    expression Expression
     direction Direction
+    offset int
     err error
+
+    expression *Expression
+    expressionOffset CellPosition
+}
+
+type CellPosition struct {
+    row int
+    column int
+}
+
+func (position CellPosition) Offset(direction Direction, count int) CellPosition {
+    row, column := position.row, position.column
+    switch direction {
+    case DirectionUp:
+        return CellPosition { row - count, column }
+    case DirectionRight:
+        return CellPosition { row, column + count }
+    case DirectionDown:
+        return CellPosition { row + count, column }
+    case DirectionLeft:
+        return CellPosition { row, column - count }
+    default:
+        panic(0)
+    }
+}
+
+func formatCellNumber(number float64) string {
+    return strconv.FormatFloat(number, 'f', -1, 32)
 }
 
 func (cell Cell) String() string {
@@ -78,13 +92,15 @@ func (cell Cell) String() string {
     case CellText:
         return cell.text
     case CellNumber:
-        return fmt.Sprintf("%.6g", cell.number)
+        return formatCellNumber(cell.number)
     case CellExpression:
         if cell.evaluationState == EvaluationDone {
-            return fmt.Sprintf("%.6g", cell.number)
+            return formatCellNumber(cell.number)
         } else {
             return "#ERROR#"
         }
+    case CellSeporator:
+        return ""
     case CellError:
         return "#" + fmt.Sprint(cell.err) + "#"
     case CellEmpty:
@@ -114,13 +130,15 @@ func parseDirection(text string) (Direction, error) {
     }
 }
 
-func parseCell(text string) Cell {
+func parseCell(allocator *ExpressionAllocator,
+               text string,
+               position CellPosition) Cell {
     if len(text) == 0 {
         return Cell { kind: CellEmpty }
     }
 
     if text[0] == '=' {
-        expression, _, err := parseExpression(text[1:]) 
+        expression, _, err := parseExpression(allocator, text[1:], position)
         if err != nil {
             return Cell { kind: CellError, err: err }
         }
@@ -134,7 +152,15 @@ func parseCell(text string) Cell {
             return Cell { kind: CellError, err: err }
         }
 
-        return Cell { kind: CellClone, direction: direction }
+        offset := 1
+        if len(text) > 2 && isDigit(text[2]) {
+            offset, _, err = parseInt(text[2:])
+        }
+        return Cell { kind: CellClone, direction: direction, offset: offset }
+    }
+
+    if len(text) > 1 && text[:2] == "__" {
+        return Cell { kind: CellSeporator }
     }
 
     number, err := strconv.ParseFloat(text, 64)

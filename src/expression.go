@@ -16,23 +16,21 @@ const (
     TokenName
     TokenNumber
     TokenCell
+    TokenConstant
     TokenRange
     TokenEmpty
 )
 
 type Range struct {
-    start_row int
-    start_column int
-    end_row int
-    end_column int
+    start CellPosition
+    end CellPosition
 }
 
 type Token struct {
     kind TokenKind
     name string
     number float64
-    row int
-    column int
+    position CellPosition
     cellRange Range
 }
 
@@ -41,6 +39,7 @@ const (
     ExpressionAdd ExpressionKind = iota
     ExpressionNumber
     ExpressionCell
+    ExpressionConstant
     ExpressionRange
     ExpressionFunction
 )
@@ -52,37 +51,40 @@ type Expression struct {
     lhs *Expression
     rhs *Expression
 
-    row int
-    column int
+    position CellPosition
     cellRange Range
 
     function string
-    arguments []Expression
+    arguments []*Expression
 }
 
-func (expression *Expression) Shift(direction Direction) {
-    switch expression.kind {
-    case ExpressionAdd:
-        expression.lhs.Shift(direction)
-        expression.rhs.Shift(direction)
-    case ExpressionCell:
-        row, column := &expression.row, &expression.column
-        *row, *column = direction.Offset(*row, *column)
-    case ExpressionRange:
-        cellRange := &expression.cellRange
-        start_row, start_column := &cellRange.start_row, &cellRange.end_column
-        end_row, end_column := &cellRange.end_row, &cellRange.end_column
+const BlockSize = 1024;
 
-        *start_row, *start_column = direction.Offset(*start_row, *start_column)
-        *end_row, *end_column = direction.Offset(*end_row, *end_column)
-    case ExpressionFunction:
-        for i := range expression.arguments {
-            expression.arguments[i].Shift(direction)
-        }
-    case ExpressionNumber:
-    default:
-        panic(0)
+type ExpressionAllocator struct {
+    blocks [][]Expression
+    used_in_current_block int
+}
+
+func newExpressionAllocator() ExpressionAllocator {
+    blocks := make([][]Expression, 1)
+    blocks = append(blocks, make([]Expression, BlockSize))
+    return ExpressionAllocator {
+        blocks: blocks,
+        used_in_current_block: 0,
     }
+}
+
+func (allocator *ExpressionAllocator) New() *Expression {
+    if allocator.used_in_current_block >= BlockSize {
+        allocator.used_in_current_block = 0
+        allocator.blocks = append(allocator.blocks, make([]Expression, BlockSize))
+    }
+    
+    index := allocator.used_in_current_block
+    block := allocator.blocks[len(allocator.blocks)-1]
+
+    allocator.used_in_current_block += 1
+    return &block[index]
 }
 
 func isLetter(c byte) bool {
@@ -91,6 +93,10 @@ func isLetter(c byte) bool {
 
 func isDigit(c byte) bool {
     return c >= '0' && c <= '9'
+}
+
+func isDirection(c byte) bool {
+    return c == '^' || c == '>' || c == 'v' || c == '<'
 }
 
 func parseName(text string) (Token, string, error) {
@@ -109,8 +115,16 @@ func parseName(text string) (Token, string, error) {
     }, text[i:], nil
 }
 
-func parseRange(row int, column int, text string) (Token, string, error) {
-    end, text, err := parseCellReference(text)
+func parseRange(start CellPosition, text string, position CellPosition) (Token, string, error) {
+    var end Token
+    var err error
+
+    if isDirection(text[0]) {
+        end, text, err = parseRelativeCellReferance(text, position)
+    } else {
+        end, text, err = parseCellReference(text, position)
+    }
+
     if err != nil {
         return Token{}, text, err
     }
@@ -118,38 +132,76 @@ func parseRange(row int, column int, text string) (Token, string, error) {
     return Token {
         kind: TokenRange,
         cellRange: Range {
-            start_row: row,
-            start_column: column,
-            end_row: end.row,
-            end_column: end.column,
+            start: start,
+            end: end.position,
         },
     }, text, nil
 }
 
-func parseCellReference(text string) (Token, string, error) {
-    column_name := strings.ToUpper(text)[0]
-    column := int(column_name - 'A')
-
-    i := 1
+func parseInt(text string) (int, string, error) {
+    i := 0
     for i < len(text) && isDigit(text[i]) {
         i += 1
     }
 
-    row_index, err := strconv.ParseInt(text[1:i], 10, 32)
+    result, err := strconv.ParseInt(text[0:i], 10, 32)
+    if err != nil {
+        return -1, text, err
+    }
+
+    return int(result), text[i:], nil
+}
+
+func parseRelativeCellReferance(text string, position CellPosition) (Token, string, error) {
+    var err error
+
+    direction := DirectionNone
+    switch text[0] {
+    case '^': direction = DirectionUp
+    case '>': direction = DirectionRight
+    case 'v': direction = DirectionDown
+    case '<': direction = DirectionLeft
+    default:
+        panic(0)
+    }
+
+    text = text[1:]
+    offset := 1
+    if len(text) > 0 && isDigit(text[0]) {
+        offset, text, err = parseInt(text)
+        if err != nil {
+            return Token{}, text, err
+        }
+    }
+
+    refPosition := position.Offset(direction, offset)
+    return Token { kind: TokenCell, position: refPosition }, text, nil
+}
+
+func parseConstantReferance(text string, position CellPosition) (Token, string, error) {
+    ref, text, err := parseCellReference(text[1:], position)
     if err != nil {
         return Token{}, text, err
     }
 
-    row := int(row_index) - 1
-    if i < len(text) && text[i] == ':' {
-        return parseRange(row, column, text[i+1:])
+    ref.kind = TokenConstant
+    return ref, text, nil
+}
+
+func parseCellReference(text string, position CellPosition) (Token, string, error) {
+    column_name := strings.ToUpper(text)[0]
+    column := column_name - 'A'
+    row, text, err := parseInt(text[1:])
+    if err != nil {
+        return Token{}, text, err
     }
 
-    return Token {
-        kind: TokenCell,
-        row: row,
-        column: column,
-    }, text[i:], nil
+    refPosition := CellPosition { int(row) - 1, int(column) }
+    if len(text) > 0 && text[0] == ':' {
+        return parseRange(refPosition, text[1:], position)
+    }
+
+    return Token { kind: TokenCell, position: refPosition }, text, nil
 }
 
 func parseNumber(text string) (Token, string, error) {
@@ -169,7 +221,7 @@ func parseNumber(text string) (Token, string, error) {
     }, text[i:], nil
 }
 
-func nextToken(text string) (Token, string, error) {
+func nextToken(text string, position CellPosition) (Token, string, error) {
     text = strings.TrimLeft(text, " ")
     if len(text) == 0 {
         return Token { kind: TokenEmpty }, text, nil
@@ -185,11 +237,15 @@ func nextToken(text string) (Token, string, error) {
         return Token { kind: TokenCloseBrace }, text[1:], nil
     case c == ',':
         return Token { kind: TokenComma }, text[1:], nil
+    case c == '$':
+        return parseConstantReferance(text, position)
+    case isDirection(c):
+        return parseRelativeCellReferance(text, position)
     case isLetter(c):
         if name, text, err := parseName(text); err == nil {
             return name, text, err
         } else {
-            return parseCellReference(text)
+            return parseCellReference(text, position)
         }
     case isDigit(c):
         return parseNumber(text)
@@ -199,8 +255,8 @@ func nextToken(text string) (Token, string, error) {
     }
 }
 
-func expect(kind TokenKind, text string) (string, error) {
-    token, text, err := nextToken(text)
+func expect(kind TokenKind, text string, position CellPosition) (string, error) {
+    token, text, err := nextToken(text, position)
     if err != nil {
         return text, err
     }
@@ -214,109 +270,122 @@ func expect(kind TokenKind, text string) (string, error) {
     return text, nil
 }
 
-func parseFunction(function string, text string) (Expression, string, error) {
-    text, err := expect(TokenOpenBrace, text)
+func parseFunction(allocator *ExpressionAllocator,
+                   function string,
+                   text string,
+                   position CellPosition) (*Expression, string, error) {
+    text, err := expect(TokenOpenBrace, text, position)
     if err != nil {
-        return Expression{}, text, err
+        return nil, text, err
     }
     
-    arguments := make([]Expression, 0)
+    arguments := make([]*Expression, 0)
     for {
-        var argument Expression
+        var argument *Expression
         var token Token
 
-        argument, text, err = parseExpression(text)
+        argument, text, err = parseExpression(allocator, text, position)
         if err != nil {
-            return Expression{}, text, err
+            return nil, text, err
         }
 
         arguments = append(arguments, argument)
-        token, text, err = nextToken(text)
+        token, text, err = nextToken(text, position)
         if token.kind == TokenCloseBrace {
             break
         }
 
         if token.kind != TokenComma {
-            return Expression{}, text, errors.New("Missing comma")
+            return nil, text, errors.New("Missing comma")
         }
     }
 
-    return Expression {
-        kind: ExpressionFunction,
-        function: function,
-        arguments: arguments,
-    }, text, err
+    expression := allocator.New()
+    expression.kind = ExpressionFunction
+    expression.function = function
+    expression.arguments = arguments
+    return expression, text, nil
 }
 
-func parseTerm(text string) (Expression, string, error) {
-    token, text, err := nextToken(text)
+func parseTerm(allocator *ExpressionAllocator,
+               text string,
+               position CellPosition) (*Expression, string, error) {
+    token, text, err := nextToken(text, position)
     if err != nil {
-        return Expression{}, text, err
+        return nil, text, err
     }
 
     switch token.kind {
     case TokenName:
-        return parseFunction(token.name, text)
+        return parseFunction(allocator, token.name, text, position)
     case TokenNumber:
-        return Expression {
-            kind: ExpressionNumber,
-            number: token.number,
-        }, text, nil
+        expression := allocator.New()
+        expression.kind = ExpressionNumber
+        expression.number = token.number
+        return expression, text, nil
     case TokenCell:
-        return Expression {
-            kind: ExpressionCell,
-            row: token.row,
-            column: token.column,
-        }, text, nil
+        expression := allocator.New()
+        expression.kind = ExpressionCell
+        expression.position = token.position
+        return expression, text, nil
+    case TokenConstant:
+        expression := allocator.New()
+        expression.kind = ExpressionConstant
+        expression.position = token.position
+        return expression, text, nil
     case TokenRange:
-        return Expression {
-            kind: ExpressionRange,
-            cellRange: token.cellRange,
-        }, text, nil
+        expression := allocator.New()
+        expression.kind = ExpressionRange
+        expression.cellRange = token.cellRange
+        return expression, text, nil
     case TokenAdd:
-        return Expression{}, text, errors.New(
+        return nil, text, errors.New(
             "Unexpected '+', expected value")
     case TokenEmpty:
-        return Expression{}, text, errors.New(
+        return nil, text, errors.New(
             "Expected value, got nothing instead")
     default:
         panic(0)
     }
 }
 
-func parseOperation(lhs Expression,
+func parseOperation(allocator *ExpressionAllocator,
+                    lhs *Expression,
                     kind ExpressionKind,
-                    text string) (Expression, string, error) {
-    rhs, text, err := parseExpression(text)
+                    text string,
+                    position CellPosition) (*Expression, string, error) {
+    rhs, text, err := parseExpression(allocator, text, position)
     if err != nil {
-        return Expression{}, text, err
+        return nil, text, err
     }
 
-    return Expression {
-        kind: kind,
-        lhs: &lhs,
-        rhs: &rhs,
-    }, text, nil
+    expression := allocator.New()
+    expression.kind = kind
+    expression.lhs = lhs
+    expression.rhs = rhs
+    return expression, text, nil
 }
 
-func parseExpression(text string) (Expression, string, error) {
-    result, text, err := parseTerm(text)
+func parseExpression(allocator *ExpressionAllocator,
+                     text string,
+                     position CellPosition) (*Expression, string, error) {
+    result, text, err := parseTerm(allocator, text, position)
     if err != nil {
-        return Expression{}, text, err
+        return nil, text, err
     }
 
     should_continue := true
     for should_continue {
-        token, next_text, err := nextToken(text)
+        token, next_text, err := nextToken(text, position)
         if err != nil {
-            return Expression{}, text, err
+            return nil, text, err
         }
 
         switch token.kind {
         case TokenAdd:
-            result, text, err = parseOperation(result, ExpressionAdd, next_text)
+            result, text, err = parseOperation(allocator, result, ExpressionAdd, next_text, position)
             if err != nil {
-                return Expression{}, text, err
+                return nil, text, err
             }
         default:
             should_continue = false
