@@ -40,20 +40,6 @@ func (table *Table) IsEmpty(position CellPosition) bool {
     return table.content[index].kind == CellEmpty
 }
 
-func cloneCell(allocator *ExpressionAllocator,
-               cell Cell,
-               direction Direction,
-               offset int) Cell {
-    if cell.kind == CellExpression {
-        cell.expressionOffset = cell.expressionOffset.Offset(
-            direction.Reverse(), offset)
-        cell.evaluationState = EvaluationPending
-        cell.number = 0
-    }
-
-    return cell
-}
-
 func (table *Table) Print(output io.Writer) {
     cellTexts := make([]string, table.rows * table.columns)
     widths := make([]int, table.columns)
@@ -131,10 +117,9 @@ func readCloneLine(allocator *ExpressionAllocator,
     }
 
     for i := 0; i < int(count); i++ {
+        copy(content[row*columns:(row+1)*columns], content[(row-1)*columns:row*columns])
         for column := 0; column < columns; column++ {
-            above_index := (row - 1) * columns + column
-            index := row * columns + column
-            content[index] = cloneCell(allocator, content[above_index], DirectionUp, 1)
+            content[row * columns + column].Offset(DirectionUp, 1)
         }
         row += 1
     }
@@ -168,7 +153,19 @@ func readTableContent(allocator *ExpressionAllocator,
         cells := strings.Split(line, "|")
         for column := 0; column < len(cells); column++ {
             text := strings.TrimSpace(cells[column])
-            cell := parseCell(allocator, text, CellPosition { row, column })
+            position := CellPosition { row, column }
+            cell := parseCell(allocator, text, position)
+
+            /*
+            if cell.kind == CellClone && cell.direction.IsUpOrLeft() {
+                direction, offset := cell.direction, cell.offset
+                clonePosition := position.Offset(direction, offset)
+                index := clonePosition.row * columns + clonePosition.column
+                cell = content[index]
+                cell.Offset(direction, offset)
+            }
+            */
+
             index := row * columns + column
             content[index] = cell
         }

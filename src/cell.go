@@ -17,16 +17,19 @@ const (
 
 func (direction Direction) Reverse() Direction {
     switch direction {
-    case DirectionUp:
-        return DirectionDown
-    case DirectionRight:
-        return DirectionLeft
-    case DirectionDown:
-        return DirectionUp
-    case DirectionLeft:
-        return DirectionRight
-    default:
-        panic(0)
+    case DirectionUp: return DirectionDown
+    case DirectionRight: return DirectionLeft
+    case DirectionDown: return DirectionUp
+    case DirectionLeft: return DirectionRight
+    default: panic(0)
+    }
+}
+
+func (direction Direction) IsUpOrLeft() bool {
+    switch direction {
+    case DirectionUp, DirectionLeft: return true
+    case DirectionDown, DirectionRight: return false
+    default: panic(0)
     }
 }
 
@@ -107,6 +110,15 @@ func (cell Cell) String() string {
         return ""
     default:
         panic(0)
+    }
+}
+
+func (cell *Cell) Offset(direction Direction, offset int) {
+    if cell.kind == CellExpression {
+        cell.expressionOffset = cell.expressionOffset.Offset(
+            direction.Reverse(), offset)
+        cell.evaluationState = EvaluationPending
+        cell.number = 0
     }
 }
 

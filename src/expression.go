@@ -26,6 +26,19 @@ type Range struct {
     end CellPosition
 }
 
+func (r Range) Shift(offset CellPosition) Range {
+    return Range {
+        CellPosition {
+            r.start.row + offset.row,
+            r.start.column + offset.column,
+        },
+        CellPosition {
+            r.end.row + offset.row,
+            r.end.column + offset.column,
+        },
+    }
+}
+
 type Token struct {
     kind TokenKind
     name string

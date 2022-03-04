@@ -68,7 +68,7 @@ func sum(table *Table,
          arguments []*Expression,
          shiftOffset CellPosition) float64 {
     total := 0.0
-    a := arguments[0].cellRange
+    a := arguments[0].cellRange.Shift(shiftOffset)
     for row := a.start.row; row <= a.end.row; row++ {
         for column := a.start.column; column <= a.end.column; column++ {
             table.EnsureEvaluated(CellPosition { row, column })
@@ -160,17 +160,7 @@ func (table *Table) EvaluateExpression(expression *Expression,
     }
 }
 
-func (table *Table) EnsureEvaluated(position CellPosition) {
-    cell := table.CellAt(position)
-    if cell.evaluationState == EvaluationDone {
-        return
-    }
-
-    if cell.evaluationState == EvaluationInProgress {
-        *cell = Cell { kind: CellError, err: errors.New("Loop!") }
-        return
-    }
-
+func (table *Table) EvaluateCell(cell *Cell, position CellPosition) {
     cell.evaluationState = EvaluationInProgress
     switch cell.kind {
     case CellExpression:
@@ -182,15 +172,35 @@ func (table *Table) EnsureEvaluated(position CellPosition) {
             *cell = Cell { kind: CellError, err: err }
         }
     case CellClone:
-        clone_position := position.Offset(cell.direction, cell.offset)
+        direction, offset := cell.direction, cell.offset
+        clone_position := position.Offset(direction, offset)
         table.EnsureEvaluated(clone_position)
 
-        clone_cell := *table.CellAt(clone_position)
-        *cell = cloneCell(&table.allocator, clone_cell, cell.direction, cell.offset)
+        *cell = *table.CellAt(clone_position)
+        cell.Offset(direction, offset)
         table.EnsureEvaluated(position)
+    default:
+        panic(0)
     }
 
     cell.evaluationState = EvaluationDone
+}
+
+func (table *Table) EnsureEvaluated(position CellPosition) { 
+    cell := table.CellAt(position)
+    if cell.evaluationState == EvaluationDone {
+        return
+    }
+
+    if cell.kind != CellExpression && cell.kind != CellClone {
+        return
+    }
+
+    if cell.evaluationState == EvaluationInProgress {
+        *cell = Cell { kind: CellError, err: errors.New("Loop!") }
+        return
+    }
+    table.EvaluateCell(cell, position)
 }
 
 func (table *Table) Evaluate() {
